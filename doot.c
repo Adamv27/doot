@@ -709,6 +709,20 @@ static int do_motion(int key, size_t *from_byte, size_t *to_byte)
         E.cursor_col = 0;
         break;
 
+    case 'g': {
+        /* gg — go to first line (or line N) */
+        int next = term_read_key();
+        if (next != 'g') return -1;
+        size_t target = E.count > 0 ? (size_t)(E.count - 1) : 0;
+        if (line_exists(target))
+            E.cursor_line = target;
+        else
+            E.cursor_line = 0;
+        E.cursor_col = 0;
+        clamp_cursor();
+        break;
+    }
+
     case 'G': {
         /* Go to line N, or last line if no count */
         if (E.count > 0) {
@@ -863,22 +877,6 @@ static void handle_normal(int key)
     case 'y':
         E.pending_op = OP_YANK;
         return;
-
-    /* ── gg — go to first line (or line N) ── */
-    case 'g': {
-        int next = term_read_key();
-        if (next == 'g') {
-            size_t target = E.count > 0 ? (size_t)(E.count - 1) : 0;
-            if (line_exists(target))
-                E.cursor_line = target;
-            else
-                E.cursor_line = 0;
-            E.cursor_col = 0;
-            clamp_cursor();
-        }
-        vim_reset();
-        return;
-    }
 
     /* ── Insert mode entry ── */
     case 'i':
