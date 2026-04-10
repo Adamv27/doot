@@ -207,14 +207,29 @@ void render_screen(void)
 
         if (line_len == (size_t)-1) {
             /* Past end of file */
-            if (E.buf.total_bytes == 0 && y == file_rows / 3) {
-                const char *welcome = "doot -- a lightweight text editor (vim mode)";
-                size_t wlen = strlen(welcome);
-                size_t padding = ((size_t)E.screen_cols - wlen) / 2;
+            static const char *logo[] = {
+                "  _____   ____   ____ _______ ",
+                " |  __ \\ / __ \\ / __ \\__   __|",
+                " | |  | | |  | | |  | | | |   ",
+                " | |  | | |  | | |  | | | |   ",
+                " | |__| | |__| | |__| | | |   ",
+                " |_____/ \\____/ \\____/  |_|   ",
+                "                               ",
+                "                               ",
+            };
+            static const int logo_lines = 8;
+            int logo_start = file_rows / 3 - logo_lines / 2;
+            if (logo_start < 0) logo_start = 0;
+
+            if (E.buf.total_bytes == 0 && y >= logo_start && y < logo_start + logo_lines) {
+                const char *art = logo[y - logo_start];
+                size_t alen = strlen(art);
+                size_t padding = ((size_t)E.screen_cols > alen)
+                    ? ((size_t)E.screen_cols - alen) / 2 : 0;
                 render_append("~", 1);
                 for (size_t p = 1; p < padding; p++)
                     render_append(" ", 1);
-                render_append(welcome, wlen);
+                render_append(art, alen);
             } else {
                 render_append("~", 1);
             }
