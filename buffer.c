@@ -277,50 +277,35 @@ int buf_delete(Buffer *buf, size_t byte_pos, size_t len)
     if (byte_pos + len > buf->total_bytes)
         len = buf->total_bytes - byte_pos;
 
-    size_t del_end = byte_pos + len;
     size_t off_in_piece;
-    int start_idx = find_piece(buf, byte_pos, &off_in_piece);
+    int i = find_piece(buf, byte_pos, &off_in_piece);
 
-    /* Walk through pieces, trimming/removing as needed */
-    size_t accum = byte_pos - off_in_piece;
-    int i = start_idx;
-
+    /* Handle the first piece — may need partial trim or split */
     while (i < buf->piece_count && len > 0) {
         Piece *p = &buf->pieces[i];
-        size_t piece_start = accum;
-        size_t piece_end = accum + p->length;
-        size_t del_start_in_piece = byte_pos > piece_start ? byte_pos - piece_start : 0;
-        size_t del_end_in_piece = del_end < piece_end ? del_end - piece_start : p->length;
-        size_t del_len = del_end_in_piece - del_start_in_piece;
+        size_t avail = p->length - off_in_piece; /* bytes from offset to end of piece */
+        size_t del_len = len < avail ? len : avail;
 
-        if (del_start_in_piece == 0 && del_len == p->length) {
+        if (off_in_piece == 0 && del_len == p->length) {
             /* Remove entire piece */
             memmove(&buf->pieces[i], &buf->pieces[i + 1],
                     (size_t)(buf->piece_count - i - 1) * sizeof(Piece));
             buf->piece_count--;
-            len -= del_len;
-            byte_pos += del_len;
-            /* don't increment i */
-        } else if (del_start_in_piece == 0) {
+            /* don't increment i — next piece slides into this slot */
+        } else if (off_in_piece == 0) {
             /* Trim from the start */
             p->offset += del_len;
             p->length -= del_len;
-            len -= del_len;
-            byte_pos += del_len;
-            accum += p->length;
             i++;
-        } else if (del_end_in_piece == p->length) {
+        } else if (del_len == avail) {
             /* Trim from the end */
             p->length -= del_len;
-            len -= del_len;
-            byte_pos += del_len;
-            accum += p->length;
             i++;
         } else {
             /* Split: delete from middle of a piece */
-            Piece before = { p->source, p->offset, del_start_in_piece };
-            Piece after = { p->source, p->offset + del_end_in_piece,
-                            p->length - del_end_in_piece };
+            Piece before = { p->source, p->offset, off_in_piece };
+            Piece after = { p->source, p->offset + off_in_piece + del_len,
+                            p->length - off_in_piece - del_len };
 
             pieces_ensure_cap(buf, 1);
             p = &buf->pieces[i]; /* realloc may have moved */
@@ -329,8 +314,10 @@ int buf_delete(Buffer *buf, size_t byte_pos, size_t len)
             buf->pieces[i] = before;
             buf->pieces[i + 1] = after;
             buf->piece_count++;
-            len = 0;
+            /* deletion is fully contained; done */
         }
+        len -= del_len;
+        off_in_piece = 0; /* subsequent pieces are consumed from the start */
     }
 
     buf->total_bytes = 0;
