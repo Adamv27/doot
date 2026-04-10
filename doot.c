@@ -38,6 +38,17 @@ static void vim_reset(void)
     E.count_active = 0;
 }
 
+/* Save undo snapshot if one hasn't been saved for the current edit group.
+   Call this before the first buffer mutation in a command or insert session. */
+static void undo_save(void)
+{
+    if (!E.undo_saved) {
+        undo_push(&E.undo, &E.buf, E.cursor_line, E.cursor_col);
+        undo_clear(&E.redo);
+        E.undo_saved = 1;
+    }
+}
+
 /* Clamp cursor column to line length. In normal mode, clamp to len-1
    (can't sit past the last char), in insert mode clamp to len. */
 static void clamp_cursor(void)
@@ -322,6 +333,7 @@ static void execute_op_range(VimOperator op, size_t from_byte, size_t to_byte)
         return;
     }
 
+    undo_save();
     lcache_invalidate_from(&E.lcache, from_byte);
     buf_delete(&E.buf, from_byte, len);
 
@@ -356,6 +368,7 @@ static void execute_op_lines(VimOperator op, size_t first_line, size_t last_line
         return;
     }
 
+    undo_save();
     lcache_invalidate_from(&E.lcache, from);
     buf_delete(&E.buf, from, to - from);
 
@@ -380,6 +393,8 @@ static void execute_op_lines(VimOperator op, size_t first_line, size_t last_line
 
 static void handle_insert(int key)
 {
+    undo_save();
+
     switch (key) {
     case '\x1b': /* Escape — back to normal mode */
         E.mode = MODE_NORMAL;
@@ -468,8 +483,6 @@ static void execute_command(void)
         if (E.buf.filename == NULL) {
             editor_set_status("No filename");
         } else if (buf_save(&E.buf) == 0) {
-            lcache_free(&E.lcache);
-            lcache_init(&E.lcache);
             editor_set_status("\"%s\" written, %zu bytes", E.buf.filename, E.buf.total_bytes);
         } else {
             editor_set_status("Error writing file!");
@@ -480,8 +493,6 @@ static void execute_command(void)
         free(E.buf.filename);
         E.buf.filename = strdup(cmd + 2);
         if (buf_save(&E.buf) == 0) {
-            lcache_free(&E.lcache);
-            lcache_init(&E.lcache);
             editor_set_status("\"%s\" written, %zu bytes", E.buf.filename, E.buf.total_bytes);
         } else {
             editor_set_status("Error writing file!");
@@ -784,6 +795,8 @@ static int do_motion(int key, size_t *from_byte, size_t *to_byte)
 
 static void handle_normal(int key)
 {
+    E.undo_saved = 0;
+
     /* Accumulate count prefix */
     if (key >= '1' && key <= '9' && E.pending_op == OP_NONE) {
         E.count = E.count * 10 + (key - '0');
@@ -943,6 +956,7 @@ static void handle_normal(int key)
 
     case 'o': {
         /* Open line below */
+        undo_save();
         E.mode = MODE_INSERT;
         size_t eol = buf_byte_offset(&E.buf, E.cursor_line,
             lcache_line_length(&E.lcache, &E.buf, E.cursor_line));
@@ -956,6 +970,7 @@ static void handle_normal(int key)
 
     case 'O': {
         /* Open line above */
+        undo_save();
         E.mode = MODE_INSERT;
         size_t bol = buf_byte_offset(&E.buf, E.cursor_line, 0);
         lcache_invalidate_from(&E.lcache, bol);
@@ -969,6 +984,7 @@ static void handle_normal(int key)
 
     /* ── x — delete char under cursor ── */
     case 'x': {
+        undo_save();
         for (int i = 0; i < n; i++) {
             size_t byte_pos = buf_byte_offset(&E.buf, E.cursor_line, E.cursor_col);
             if (byte_pos >= E.buf.total_bytes) break;
@@ -985,6 +1001,7 @@ static void handle_normal(int key)
 
     /* ── X — delete char before cursor ── */
     case 'X': {
+        undo_save();
         for (int i = 0; i < n; i++) {
             if (E.cursor_col == 0) break;
             size_t byte_pos = buf_byte_offset(&E.buf, E.cursor_line, E.cursor_col);
@@ -1007,6 +1024,7 @@ static void handle_normal(int key)
         size_t byte_pos = buf_byte_offset(&E.buf, E.cursor_line, E.cursor_col);
         if (byte_pos < E.buf.total_bytes) {
             char c = (char)ch;
+            undo_save();
             lcache_invalidate_from(&E.lcache, byte_pos);
             buf_delete(&E.buf, byte_pos, 1);
             buf_insert(&E.buf, byte_pos, &c, 1);
@@ -1021,6 +1039,7 @@ static void handle_normal(int key)
         size_t eol = buf_byte_offset(&E.buf, E.cursor_line,
             lcache_line_length(&E.lcache, &E.buf, E.cursor_line));
         if (eol > from) {
+            undo_save();
             yank_range(from, eol, 0);
             lcache_invalidate_from(&E.lcache, from);
             buf_delete(&E.buf, from, eol - from);
@@ -1036,6 +1055,7 @@ static void handle_normal(int key)
         size_t eol = buf_byte_offset(&E.buf, E.cursor_line,
             lcache_line_length(&E.lcache, &E.buf, E.cursor_line));
         if (eol > from) {
+            undo_save();
             yank_range(from, eol, 0);
             lcache_invalidate_from(&E.lcache, from);
             buf_delete(&E.buf, from, eol - from);
@@ -1061,6 +1081,7 @@ static void handle_normal(int key)
 
     /* ── s — substitute char ── */
     case 's': {
+        undo_save();
         size_t byte_pos = buf_byte_offset(&E.buf, E.cursor_line, E.cursor_col);
         if (byte_pos < E.buf.total_bytes) {
             char c = buf_byte_at(&E.buf, byte_pos);
@@ -1077,6 +1098,7 @@ static void handle_normal(int key)
     /* ── p/P — paste ── */
     case 'p': {
         if (!E.yank_buf || E.yank_len == 0) { vim_reset(); return; }
+        undo_save();
         if (E.yank_linewise) {
             /* Paste below current line */
             size_t next = lcache_find_line_offset(&E.lcache, &E.buf, E.cursor_line + 1);
@@ -1118,6 +1140,7 @@ static void handle_normal(int key)
 
     case 'P': {
         if (!E.yank_buf || E.yank_len == 0) { vim_reset(); return; }
+        undo_save();
         if (E.yank_linewise) {
             size_t pos = buf_byte_offset(&E.buf, E.cursor_line, 0);
             lcache_invalidate_from(&E.lcache, pos);
@@ -1141,6 +1164,7 @@ static void handle_normal(int key)
 
     /* ── J — join lines ── */
     case 'J': {
+        undo_save();
         for (int i = 0; i < n; i++) {
             size_t eol = buf_byte_offset(&E.buf, E.cursor_line,
                 lcache_line_length(&E.lcache, &E.buf, E.cursor_line));
@@ -1234,11 +1258,64 @@ static void handle_normal(int key)
         return;
     }
 
-    /* ── u — undo (not implemented) ── */
-    case 'u':
-        editor_set_status("Undo not implemented");
+    /* ── u — undo ── */
+    case 'u': {
+        if (E.undo.count == 0) {
+            editor_set_status("Already at oldest change");
+            vim_reset();
+            return;
+        }
+        /* Push current state to redo stack */
+        undo_push(&E.redo, &E.buf, E.cursor_line, E.cursor_col);
+
+        /* Pop from undo stack and restore */
+        UndoEntry *e = &E.undo.entries[--E.undo.count];
+        free(E.buf.pieces);
+        E.buf.pieces = e->pieces;
+        E.buf.piece_count = e->piece_count;
+        E.buf.piece_cap = e->piece_count;
+        E.buf.total_bytes = e->total_bytes;
+        E.buf.add_len = e->add_len;
+        E.buf.dirty = 1;
+        E.cursor_line = e->cursor_line;
+        E.cursor_col = e->cursor_col;
+        /* Don't free e->pieces — ownership transferred to buf */
+
+        lcache_free(&E.lcache);
+        lcache_init(&E.lcache);
+        clamp_cursor();
         vim_reset();
         return;
+    }
+
+    /* ── Ctrl-R — redo ── */
+    case CTRL_KEY('r'): {
+        if (E.redo.count == 0) {
+            editor_set_status("Already at newest change");
+            vim_reset();
+            return;
+        }
+        /* Push current state to undo stack */
+        undo_push(&E.undo, &E.buf, E.cursor_line, E.cursor_col);
+
+        /* Pop from redo stack and restore */
+        UndoEntry *e = &E.redo.entries[--E.redo.count];
+        free(E.buf.pieces);
+        E.buf.pieces = e->pieces;
+        E.buf.piece_count = e->piece_count;
+        E.buf.piece_cap = e->piece_count;
+        E.buf.total_bytes = e->total_bytes;
+        E.buf.add_len = e->add_len;
+        E.buf.dirty = 1;
+        E.cursor_line = e->cursor_line;
+        E.cursor_col = e->cursor_col;
+
+        lcache_free(&E.lcache);
+        lcache_init(&E.lcache);
+        clamp_cursor();
+        vim_reset();
+        return;
+    }
 
     /* ── . — repeat (not implemented) ── */
     case '.':
@@ -1248,6 +1325,7 @@ static void handle_normal(int key)
 
     /* ── ~ — toggle case ── */
     case '~': {
+        undo_save();
         size_t byte_pos = buf_byte_offset(&E.buf, E.cursor_line, E.cursor_col);
         if (byte_pos < E.buf.total_bytes) {
             char c = buf_byte_at(&E.buf, byte_pos);
@@ -1359,6 +1437,7 @@ static void handle_visual(int key)
     /* > / < — indent/dedent (simple: just status message) */
     /* J — join */
     if (key == 'J') {
+        undo_save();
         size_t sl, el;
         if (E.mode == MODE_VISUAL_LINE) {
             if (E.visual_anchor_line <= E.cursor_line) {
@@ -1459,6 +1538,8 @@ void editor_init(const char *filename)
     E.search_direction = 1;
 
     lcache_init(&E.lcache);
+    undo_init(&E.undo);
+    undo_init(&E.redo);
 
     if (buf_open(&E.buf, filename) == -1) {
         term_disable_raw();

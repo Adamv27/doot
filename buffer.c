@@ -379,46 +379,49 @@ int buf_save(Buffer *buf)
         return -1;
     }
     free(tmpname);
-
-    /* Re-mmap the saved file */
-    if (buf->orig_fd >= 0) {
-        munmap((void *)buf->orig_data, buf->orig_size);
-        close(buf->orig_fd);
-    } else if (buf->orig_data) {
-        free((void *)buf->orig_data);
-    }
-    buf->orig_data = NULL;
-    buf->orig_size = 0;
-    buf->orig_fd = -1;
-
-    int newfd = open(buf->filename, O_RDONLY);
-    if (newfd >= 0) {
-        struct stat st;
-        if (fstat(newfd, &st) == 0 && st.st_size > 0) {
-            void *map = mmap(NULL, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, newfd, 0);
-            if (map != MAP_FAILED) {
-                madvise(map, (size_t)st.st_size, MADV_RANDOM);
-                buf->orig_data = map;
-                buf->orig_size = (size_t)st.st_size;
-                buf->orig_fd = newfd;
-            } else {
-                close(newfd);
-            }
-        } else {
-            close(newfd);
-        }
-    }
-
-    /* Reset to single piece over the new file */
-    buf->pieces[0] = (Piece){ SRC_ORIGINAL, 0, buf->orig_size };
-    buf->piece_count = 1;
-    buf->total_bytes = buf->orig_size;
-
-    /* Reset add buffer */
-    buf->add_len = 0;
     buf->dirty = 0;
 
     return 0;
+}
+
+/* ── Undo stack ──────────────────────────────────────────────────── */
+
+void undo_init(UndoStack *stack)
+{
+    stack->cap = 64;
+    stack->entries = malloc((size_t)stack->cap * sizeof(UndoEntry));
+    stack->count = 0;
+}
+
+void undo_free(UndoStack *stack)
+{
+    for (int i = 0; i < stack->count; i++)
+        free(stack->entries[i].pieces);
+    free(stack->entries);
+    memset(stack, 0, sizeof(*stack));
+}
+
+void undo_clear(UndoStack *stack)
+{
+    for (int i = 0; i < stack->count; i++)
+        free(stack->entries[i].pieces);
+    stack->count = 0;
+}
+
+void undo_push(UndoStack *stack, Buffer *buf, size_t cursor_line, size_t cursor_col)
+{
+    if (stack->count >= stack->cap) {
+        stack->cap *= 2;
+        stack->entries = realloc(stack->entries, (size_t)stack->cap * sizeof(UndoEntry));
+    }
+    UndoEntry *e = &stack->entries[stack->count++];
+    e->piece_count = buf->piece_count;
+    e->total_bytes = buf->total_bytes;
+    e->add_len = buf->add_len;
+    e->cursor_line = cursor_line;
+    e->cursor_col = cursor_col;
+    e->pieces = malloc((size_t)buf->piece_count * sizeof(Piece));
+    memcpy(e->pieces, buf->pieces, (size_t)buf->piece_count * sizeof(Piece));
 }
 
 /* ── Line cache ───────────────────────────────────────────────────── */

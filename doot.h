@@ -89,6 +89,22 @@ typedef struct {
     int             cap;
 } LineCache;
 
+/* Undo system — snapshots of the piece table */
+typedef struct {
+    Piece  *pieces;
+    int     piece_count;
+    size_t  total_bytes;
+    size_t  add_len;       /* add-buffer watermark at time of snapshot */
+    size_t  cursor_line;
+    size_t  cursor_col;
+} UndoEntry;
+
+typedef struct {
+    UndoEntry *entries;
+    int        count;
+    int        cap;
+} UndoStack;
+
 /* Editor state */
 typedef struct {
     Buffer      buf;
@@ -145,6 +161,11 @@ typedef struct {
 
     /* Quit confirmation */
     int         quit_times;
+
+    /* Undo / redo */
+    UndoStack   undo;
+    UndoStack   redo;
+    int         undo_saved;     /* whether current undo group has been snapshotted */
 } EditorState;
 
 /* Global editor state */
@@ -159,6 +180,12 @@ size_t buf_read_range(Buffer *buf, size_t pos, size_t len, char *out);
 int    buf_insert(Buffer *buf, size_t byte_pos, const char *text, size_t len);
 int    buf_delete(Buffer *buf, size_t byte_pos, size_t len);
 int    buf_save(Buffer *buf);
+
+/* === buffer.c — undo === */
+void   undo_init(UndoStack *stack);
+void   undo_free(UndoStack *stack);
+void   undo_push(UndoStack *stack, Buffer *buf, size_t cursor_line, size_t cursor_col);
+void   undo_clear(UndoStack *stack);
 
 /* === buffer.c — line cache === */
 void   lcache_init(LineCache *lc);
