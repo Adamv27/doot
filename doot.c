@@ -33,6 +33,7 @@ static int vim_count(void)
 static void vim_reset(void)
 {
     E.pending_op = OP_NONE;
+    E.g_pending = 0;
     E.count = 0;
     E.count_active = 0;
 }
@@ -709,20 +710,6 @@ static int do_motion(int key, size_t *from_byte, size_t *to_byte)
         E.cursor_col = 0;
         break;
 
-    case 'g': {
-        /* gg — go to first line (or line N) */
-        int next = term_read_key();
-        if (next != 'g') return -1;
-        size_t target = E.count > 0 ? (size_t)(E.count - 1) : 0;
-        if (line_exists(target))
-            E.cursor_line = target;
-        else
-            E.cursor_line = 0;
-        E.cursor_col = 0;
-        clamp_cursor();
-        break;
-    }
-
     case 'G': {
         /* Go to line N, or last line if no count */
         if (E.count > 0) {
@@ -808,6 +795,29 @@ static void handle_normal(int key)
         return;
     }
 
+    /* Handle 'g' prefix — second key arrives here */
+    if (E.g_pending) {
+        E.g_pending = 0;
+        if (key == 'g') {
+            size_t target = E.count > 0 ? (size_t)(E.count - 1) : 0;
+            if (!line_exists(target)) target = 0;
+
+            if (E.pending_op != OP_NONE) {
+                /* Operator + gg: operate on lines from target to cursor */
+                size_t first = target < E.cursor_line ? target : E.cursor_line;
+                size_t last = target > E.cursor_line ? target : E.cursor_line;
+                execute_op_lines(E.pending_op, first, last);
+            } else {
+                /* Plain gg: jump to line */
+                E.cursor_line = target;
+                E.cursor_col = 0;
+                clamp_cursor();
+            }
+        }
+        vim_reset();
+        return;
+    }
+
     /* If an operator is pending, the next key is a motion or a doubled-op */
     if (E.pending_op != OP_NONE) {
         /* Doubled operator: dd, cc, yy — act on N lines */
@@ -820,6 +830,12 @@ static void handle_normal(int key)
             while (!line_exists(last) && last > first) last--;
             execute_op_lines(E.pending_op, first, last);
             vim_reset();
+            return;
+        }
+
+        /* Operator + g prefix — wait for second key */
+        if (key == 'g') {
+            E.g_pending = 1;
             return;
         }
 
@@ -876,6 +892,11 @@ static void handle_normal(int key)
         return;
     case 'y':
         E.pending_op = OP_YANK;
+        return;
+
+    /* ── g prefix — wait for second key ── */
+    case 'g':
+        E.g_pending = 1;
         return;
 
     /* ── Insert mode entry ── */

@@ -122,6 +122,7 @@ typedef struct {
     /* Vim state */
     VimMode     mode;
     VimOperator pending_op;
+    int         g_pending;      /* 'g' prefix received, waiting for second key */
     int         count;          /* repeat count (0 = no count given) */
     int         count_active;   /* whether user has started typing a count */
 
