@@ -198,6 +198,8 @@ void render_screen(void)
     if (file_rows < 1) file_rows = 1;
 
     int in_visual = (E.mode == MODE_VISUAL || E.mode == MODE_VISUAL_LINE);
+    int text_cols = E.screen_cols - GUTTER_WIDTH;
+    if (text_cols < 1) text_cols = 1;
 
     for (int y = 0; y < file_rows; y++) {
         size_t line_num = E.row_offset + (size_t)y;
@@ -206,7 +208,13 @@ void render_screen(void)
             &E.lcache, &E.buf, line_num, line_buf, sizeof(line_buf));
 
         if (line_len == (size_t)-1) {
-            /* Past end of file */
+            /* Past end of file — show relative line number in gutter */
+            size_t rel = (line_num > E.cursor_line)
+                ? line_num - E.cursor_line
+                : E.cursor_line - line_num;
+            render_appendf("\x1b[2m%4zu\x1b[m ", rel);
+
+            /* Logo on empty-file welcome screen */
             static const char *logo[] = {
                 "  _____   ____   ____ _______ ",
                 " |  __ \\ / __ \\ / __ \\__   __|",
@@ -224,43 +232,54 @@ void render_screen(void)
             if (E.buf.total_bytes == 0 && y >= logo_start && y < logo_start + logo_lines) {
                 const char *art = logo[y - logo_start];
                 size_t alen = strlen(art);
-                size_t padding = ((size_t)E.screen_cols > alen)
-                    ? ((size_t)E.screen_cols - alen) / 2 : 0;
-                render_append("~", 1);
-                for (size_t p = 1; p < padding; p++)
+                size_t padding = ((size_t)text_cols > alen)
+                    ? ((size_t)text_cols - alen) / 2 : 0;
+                for (size_t p = 0; p < padding; p++)
                     render_append(" ", 1);
                 render_append(art, alen);
-            } else {
-                render_append("~", 1);
-            }
-        } else if (!in_visual) {
-            /* No visual mode — fast path, no per-char highlighting */
-            if (E.col_offset < line_len) {
-                size_t visible_len = line_len - E.col_offset;
-                if (visible_len > (size_t)E.screen_cols)
-                    visible_len = (size_t)E.screen_cols;
-                render_append(line_buf + E.col_offset, visible_len);
             }
         } else {
-            /* Visual mode — render char by char with selection highlighting */
-            int in_sel = 0;
-            size_t visible_start = E.col_offset;
-            size_t visible_end = E.col_offset + (size_t)E.screen_cols;
-            if (visible_end > line_len) visible_end = line_len;
+            /* Render line number gutter */
+            size_t rel = (line_num > E.cursor_line)
+                ? line_num - E.cursor_line
+                : E.cursor_line - line_num;
 
-            for (size_t c = visible_start; c < visible_end; c++) {
-                int sel = is_selected(line_num, c);
-                if (sel && !in_sel) {
-                    render_append("\x1b[7m", 4); /* reverse video */
-                    in_sel = 1;
-                } else if (!sel && in_sel) {
-                    render_append("\x1b[m", 3);
-                    in_sel = 0;
-                }
-                render_append(&line_buf[c], 1);
+            /* Dim color for relative numbers, bold for current line */
+            if (line_num == E.cursor_line) {
+                render_appendf("\x1b[1m%4zu\x1b[m ", line_num + 1);
+            } else {
+                render_appendf("\x1b[2m%4zu\x1b[m ", rel);
             }
-            if (in_sel)
-                render_append("\x1b[m", 3);
+
+            if (!in_visual) {
+                /* No visual mode — fast path, no per-char highlighting */
+                if (E.col_offset < line_len) {
+                    size_t visible_len = line_len - E.col_offset;
+                    if (visible_len > (size_t)text_cols)
+                        visible_len = (size_t)text_cols;
+                    render_append(line_buf + E.col_offset, visible_len);
+                }
+            } else {
+                /* Visual mode — render char by char with selection highlighting */
+                int in_sel = 0;
+                size_t visible_start = E.col_offset;
+                size_t visible_end = E.col_offset + (size_t)text_cols;
+                if (visible_end > line_len) visible_end = line_len;
+
+                for (size_t c = visible_start; c < visible_end; c++) {
+                    int sel = is_selected(line_num, c);
+                    if (sel && !in_sel) {
+                        render_append("\x1b[7m", 4); /* reverse video */
+                        in_sel = 1;
+                    } else if (!sel && in_sel) {
+                        render_append("\x1b[m", 3);
+                        in_sel = 0;
+                    }
+                    render_append(&line_buf[c], 1);
+                }
+                if (in_sel)
+                    render_append("\x1b[m", 3);
+            }
         }
 
         /* Clear to end of line and newline */
@@ -331,7 +350,7 @@ void render_screen(void)
     } else {
         render_appendf("\x1b[%zu;%zuH",
             E.cursor_line - E.row_offset + 1,
-            E.cursor_col - E.col_offset + 1);
+            E.cursor_col - E.col_offset + 1 + GUTTER_WIDTH);
     }
 
     /* Show cursor */

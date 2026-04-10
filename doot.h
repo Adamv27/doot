@@ -24,6 +24,9 @@ enum {
 /* Ctrl key macro */
 #define CTRL_KEY(k) ((k) & 0x1f)
 
+/* Line-number gutter: 4 digit columns + 1 space separator */
+#define GUTTER_WIDTH 5
+
 /* Vim modes */
 typedef enum {
     MODE_NORMAL,

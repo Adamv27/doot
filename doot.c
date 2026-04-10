@@ -70,10 +70,12 @@ static void editor_scroll(void)
         E.row_offset = E.cursor_line;
     if (E.cursor_line >= E.row_offset + (size_t)file_rows)
         E.row_offset = E.cursor_line - (size_t)file_rows + 1;
+    int text_cols = E.screen_cols - GUTTER_WIDTH;
+    if (text_cols < 1) text_cols = 1;
     if (E.cursor_col < E.col_offset)
         E.col_offset = E.cursor_col;
-    if (E.cursor_col >= E.col_offset + (size_t)E.screen_cols)
-        E.col_offset = E.cursor_col - (size_t)E.screen_cols + 1;
+    if (E.cursor_col >= E.col_offset + (size_t)text_cols)
+        E.col_offset = E.cursor_col - (size_t)text_cols + 1;
 }
 
 /* ── Visual mode range ────────────────────────────────────────────── */
