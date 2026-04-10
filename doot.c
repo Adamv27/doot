@@ -1549,6 +1549,24 @@ void editor_init(const char *filename)
 
     setup_signals();
 
+    /* Read git branch from .git/HEAD */
+    E.git_branch[0] = '\0';
+    FILE *githead = fopen(".git/HEAD", "r");
+    if (githead) {
+        char line[256];
+        if (fgets(line, sizeof(line), githead)) {
+            /* "ref: refs/heads/branchname\n" */
+            const char *prefix = "ref: refs/heads/";
+            if (strncmp(line, prefix, strlen(prefix)) == 0) {
+                char *br = line + strlen(prefix);
+                size_t len = strlen(br);
+                if (len > 0 && br[len - 1] == '\n') br[len - 1] = '\0';
+                snprintf(E.git_branch, sizeof(E.git_branch), "%s", br);
+            }
+        }
+        fclose(githead);
+    }
+
     if (E.buf.total_bytes == 0 && filename == NULL)
         editor_set_status(":w <file> to save | :q to quit | i to insert");
 }

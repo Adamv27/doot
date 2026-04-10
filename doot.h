@@ -162,6 +162,9 @@ typedef struct {
     /* Quit confirmation */
     int         quit_times;
 
+    /* Git branch (read at startup) */
+    char        git_branch[128];
+
     /* Undo / redo */
     UndoStack   undo;
     UndoStack   redo;
