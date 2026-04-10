@@ -75,7 +75,7 @@ static int line_exists(size_t line)
 
 static void editor_scroll(void)
 {
-    int file_rows = E.screen_rows - 2; /* status bar + command/message line */
+    int file_rows = E.screen_rows - 1; /* status bar + command/message line */
     if (file_rows < 1) file_rows = 1;
 
     if (E.cursor_line < E.row_offset)
@@ -740,7 +740,7 @@ static int do_motion(int key, size_t *from_byte, size_t *to_byte)
 
     case KEY_PAGE_DOWN:
     case CTRL_KEY('f'): {
-        size_t rows = (size_t)(E.screen_rows - 2);
+        size_t rows = (size_t)(E.screen_rows - 1);
         for (size_t i = 0; i < rows; i++) {
             if (line_exists(E.cursor_line + 1))
                 E.cursor_line++;
@@ -751,7 +751,7 @@ static int do_motion(int key, size_t *from_byte, size_t *to_byte)
 
     case KEY_PAGE_UP:
     case CTRL_KEY('b'): {
-        size_t rows = (size_t)(E.screen_rows - 2);
+        size_t rows = (size_t)(E.screen_rows - 1);
         for (size_t i = 0; i < rows && E.cursor_line > 0; i++)
             E.cursor_line--;
         clamp_cursor();
@@ -759,7 +759,7 @@ static int do_motion(int key, size_t *from_byte, size_t *to_byte)
     }
 
     case CTRL_KEY('d'): {
-        size_t rows = (size_t)(E.screen_rows - 2) / 2;
+        size_t rows = (size_t)(E.screen_rows - 1) / 2;
         for (size_t i = 0; i < rows; i++) {
             if (line_exists(E.cursor_line + 1))
                 E.cursor_line++;
@@ -769,7 +769,7 @@ static int do_motion(int key, size_t *from_byte, size_t *to_byte)
     }
 
     case CTRL_KEY('u'): {
-        size_t rows = (size_t)(E.screen_rows - 2) / 2;
+        size_t rows = (size_t)(E.screen_rows - 1) / 2;
         for (size_t i = 0; i < rows && E.cursor_line > 0; i++)
             E.cursor_line--;
         clamp_cursor();

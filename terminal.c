@@ -194,7 +194,7 @@ void render_screen(void)
     /* Move to top-left */
     render_append("\x1b[H", 3);
 
-    int file_rows = E.screen_rows - 2; /* reserve 2 rows: status bar + command line */
+    int file_rows = E.screen_rows - 1; /* reserve 1 row for status/command bar */
     if (file_rows < 1) file_rows = 1;
 
     int in_visual = (E.mode == MODE_VISUAL || E.mode == MODE_VISUAL_LINE);
@@ -286,46 +286,11 @@ void render_screen(void)
         render_append("\x1b[K\r\n", 5);
     }
 
-    /* Status bar (reverse video) */
-    render_append("\x1b[7m", 4);
-
-    const char *mode_str = " NORMAL";
-    switch (E.mode) {
-    case MODE_NORMAL:      mode_str = " NORMAL"; break;
-    case MODE_INSERT:      mode_str = " INSERT"; break;
-    case MODE_VISUAL:      mode_str = " VISUAL"; break;
-    case MODE_VISUAL_LINE: mode_str = " V-LINE"; break;
-    case MODE_COMMAND:     mode_str = " NORMAL"; break;
-    }
-
-    char left[256];
-    int left_len = snprintf(left, sizeof(left), "%s | %.50s%s",
-        mode_str,
-        E.buf.filename ? E.buf.filename : "[new]",
-        E.buf.dirty ? " [+]" : "");
-
-    char right[64];
-    int right_len = snprintf(right, sizeof(right), "%zu:%zu ",
-        E.cursor_line + 1, E.cursor_col + 1);
-
-    if (left_len > E.screen_cols)
-        left_len = E.screen_cols;
-    render_append(left, (size_t)left_len);
-
-    int spaces = E.screen_cols - left_len - right_len;
-    for (int i = 0; i < spaces; i++)
-        render_append(" ", 1);
-    if (spaces + left_len + right_len <= E.screen_cols)
-        render_append(right, (size_t)right_len);
-
-    render_append("\x1b[m\r\n", 5); /* reset + newline to command row */
-
-    /* Command / message line (bottom row) */
+    /* Bottom bar: command line replaces status bar when active */
     if (E.mode == MODE_COMMAND) {
-        /* Show the command buffer being typed */
+        /* Command / search prompt */
         char prefix = E.cmd_buf[0];
         if (prefix == '/' || prefix == '?') {
-            /* Search prompt */
             render_append(&prefix, 1);
             if (E.cmd_len > 1)
                 render_append(E.cmd_buf + 1, E.cmd_len - 1);
@@ -333,10 +298,48 @@ void render_screen(void)
             render_append(":", 1);
             render_append(E.cmd_buf, E.cmd_len);
         }
-    } else if (E.status_msg[0] != '\0' && time(NULL) - E.status_msg_time < 5) {
-        render_append(E.status_msg, strlen(E.status_msg));
+        render_append("\x1b[K", 3);
+    } else {
+        /* Status bar (dark grey background, white text) */
+        render_append("\x1b[48;5;236m\x1b[97m", 17);
+
+        const char *mode_str = " NORMAL";
+        switch (E.mode) {
+        case MODE_NORMAL:      mode_str = " NORMAL"; break;
+        case MODE_INSERT:      mode_str = " INSERT"; break;
+        case MODE_VISUAL:      mode_str = " VISUAL"; break;
+        case MODE_VISUAL_LINE: mode_str = " V-LINE"; break;
+        case MODE_COMMAND:     mode_str = " NORMAL"; break;
+        }
+
+        /* If there's a recent status message, show it on the left instead */
+        char left[256];
+        int left_len;
+        if (E.status_msg[0] != '\0' && time(NULL) - E.status_msg_time < 5) {
+            left_len = snprintf(left, sizeof(left), " %s", E.status_msg);
+        } else {
+            left_len = snprintf(left, sizeof(left), "%s | %.50s%s",
+                mode_str,
+                E.buf.filename ? E.buf.filename : "[new]",
+                E.buf.dirty ? " [+]" : "");
+        }
+
+        char right[64];
+        int right_len = snprintf(right, sizeof(right), "%zu:%zu ",
+            E.cursor_line + 1, E.cursor_col + 1);
+
+        if (left_len > E.screen_cols)
+            left_len = E.screen_cols;
+        render_append(left, (size_t)left_len);
+
+        int spaces = E.screen_cols - left_len - right_len;
+        for (int i = 0; i < spaces; i++)
+            render_append(" ", 1);
+        if (spaces + left_len + right_len <= E.screen_cols)
+            render_append(right, (size_t)right_len);
+
+        render_append("\x1b[m", 3); /* reset colors */
     }
-    render_append("\x1b[K", 3);
 
     /* Position cursor */
     if (E.mode == MODE_COMMAND) {
